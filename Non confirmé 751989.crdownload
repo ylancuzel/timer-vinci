@@ -1,0 +1,199 @@
+// ============================================================
+//  TIMER CONDUCTEUR - VINCI Centre-Est - 26/11/2026
+//  Chataigne 1.10.4 - script de module (Module > Scripts)
+//
+//  Fonctionnement :
+//   - "Valider" (1er appui) : lance la 1re séquence
+//   - Compte à rebours de la séquence en cours
+//   - "Valider" avant la fin  -> séquence suivante immédiate
+//   - Temps écoulé sans validation -> timer INVERSÉ ROUGE (-MM:SS)
+//     qui compte vers le haut jusqu'à la validation, puis
+//     la séquence suivante démarre
+// ============================================================
+
+// [titre, durée en secondes]
+var SEQUENCES = [
+	["Entrée en salle - Accueil café + badges", 2700],
+	["Lancement / Montée sur scène", 30],
+	["Mot d'accueil, consignes sécurité, intro", 300],
+	["Interaction salle - créez votre réseau", 120],
+	["Transition - Intro VINCI c'est quoi ?", 30],
+	["FILM 1 - Comment VINCI est devenu VINCI", 960],
+	["Chiffres clés du Groupe", 300],
+	["Transition - Et en Centre-Est ?", 60],
+	["FILM 2 - VINCI en Centre-Est", 240],
+	["Infos clés VINCI en Centre-Est", 360],
+	["Interaction salle - 2 questions Vrai/Faux", 240],
+	["Transition - Intro performance sociale et sociétale", 30],
+	["Interaction salle - quiz promesse employeur", 300],
+	["AXE 1 - Employeur responsable - qui protège", 240],
+	["FILM 3 - Santé sécurité + appel Lionel", 120],
+	["Employeur responsable - qui protège (Club Pivot Prévention)", 180],
+	["Employeur responsable - qui favorise le développement", 120],
+	["FILM 4 - Employeur responsable", 180],
+	["Employeur responsable - qui rassemble", 120],
+	["Appel sur scène de Françoise", 30],
+	["Employeur responsable - qui rassemble (Trajeo'h)", 180],
+	["Appel sur scène de Margaux, Marie, Alicia et Émilie", 30],
+	["AXE 2 - Entreprise responsable - employabilité durable", 240],
+	["Entreprise responsable - employabilité durable (ViE)", 180],
+	["Entreprise responsable - engagement citoyen", 240],
+	["Conclusion de la séquence", 60],
+	["FILM 5 - Culture RH", 120],
+	["Transition - Intro performance environnementale / Appel Isabelle", 30],
+	["Ambition environnementale de VINCI", 300],
+	["Appel sur scène de Cécile, Dominique, Marie", 30],
+	["Présentation du Club Pivot environnement", 150],
+	["Slideshow en musique", 30],
+	["AXE 1 CLIMAT", 270],
+	["Appel sur scène d'Hélène, Zoé, Lionel", 30],
+	["AXE 2 ÉCO CIRCULAIRE", 90],
+	["FILM 6 - BACKIN", 136],
+	["Backin", 150],
+	["AXE 3 MILIEUX NATURELS", 450],
+	["Conclusion séquence environnement", 150],
+	["Annonce pause déjeuner + village innovation IA", 30],
+	["PAUSE DÉJEUNER + Village innovation IA", 5400],
+	["Retour en salle", 900],
+	["Générique", 30],
+	["Transition - Intro performance économique", 30],
+	["FILM 7 - Grégoire Thibault", 180],
+	["Appel sur scène des 4 intervenants", 30],
+	["Comment VINCI contribue à l'émergence d'un territoire ?", 300],
+	["Comment VINCI participe au cycle de vie d'une infrastructure", 300],
+	["Mégatendance besoins électriques : le nucléaire", 180],
+	["FILM 8 - Nucléaire", 150],
+	["Transition - Et à l'échelle du Groupe ?", 30],
+	["FILM 9 - Thierry Mirville", 180],
+	["Transition - Intro stratégie et perspectives", 30],
+	["FILM 10 - Christophe Ferrer", 180],
+	["Appel et montée sur scène Pierre Anjolras", 30],
+	["Stratégie, perspectives du Groupe", 1500],
+	["Interaction salle / Q&A", 2700],
+	["Conclusion journée + photo de groupe", 120]
+];
+
+var COLOR_NORMAL = [1, 1, 1, 1];
+var COLOR_OVERTIME = [1, 0, 0, 1];
+
+var timerParam = null;
+var colorParam = null;
+
+var running = false;      // un timer est en cours
+var overtime = false;     // dépassement (timer inversé rouge)
+var index = -1;           // séquence en cours
+var startTime = 0;        // util.getTime() au début de la séquence
+var lastText = "";
+var lastOvertime = null;
+
+// ------------------------------------------------------------
+function init()
+{
+	script.setUpdateRate(20);
+
+	// Seul affichage : le timer (+ couleur pour le rouge)
+	timerParam = script.addStringParameter("Timer", "Affichage du timer", "00:00");
+	colorParam = script.addColorParameter("Couleur", "Rouge en cas de dépassement", COLOR_NORMAL);
+	try { timerParam.setAttribute("readonly", true); } catch (e) {}
+	try { colorParam.setAttribute("readonly", true); } catch (e) {}
+
+	script.addTrigger("Valider", "Valide la séquence en cours et lance la suivante");
+	script.addTrigger("Reset", "Remet le conducteur à zéro");
+
+	resetTimer();
+}
+
+// ------------------------------------------------------------
+function scriptParameterChanged(param)
+{
+	if (param.name == "valider") valider();
+	else if (param.name == "reset") resetTimer();
+}
+
+// Appelables aussi depuis une commande "Call function" de Chataigne
+function valider()
+{
+	if (index >= SEQUENCES.length - 1 && running)
+	{
+		// fin du conducteur
+		running = false;
+		overtime = false;
+		setDisplay("FIN", false);
+		script.log("Conducteur terminé");
+		return;
+	}
+	if (index >= SEQUENCES.length - 1 && !running && index >= 0)
+	{
+		return; // déjà terminé
+	}
+	startSequence(index + 1);
+}
+
+function resetTimer()
+{
+	running = false;
+	overtime = false;
+	index = -1;
+	setDisplay(formatTime(SEQUENCES[0][1]), false);
+}
+
+// ------------------------------------------------------------
+function startSequence(i)
+{
+	index = i;
+	running = true;
+	overtime = false;
+	startTime = util.getTime();
+	script.log("Séquence " + (i + 1) + "/" + SEQUENCES.length + " : " + SEQUENCES[i][0]);
+	setDisplay(formatTime(SEQUENCES[i][1]), false);
+}
+
+function update(deltaTime)
+{
+	if (!running) return;
+
+	var elapsed = util.getTime() - startTime;
+	var remaining = SEQUENCES[index][1] - elapsed;
+
+	if (remaining >= 0)
+	{
+		overtime = false;
+		setDisplay(formatTime(Math.ceil(remaining)), false);
+	}
+	else
+	{
+		// Timer inversé rouge : on attend la validation
+		if (!overtime) script.logWarning("Dépassement - validation requise : " + SEQUENCES[index][0]);
+		overtime = true;
+		setDisplay("-" + formatTime(Math.floor(-remaining)), true);
+	}
+}
+
+// ------------------------------------------------------------
+function setDisplay(text, red)
+{
+	if (text != lastText)
+	{
+		timerParam.set(text);
+		lastText = text;
+	}
+	if (red !== lastOvertime)
+	{
+		colorParam.set(red ? COLOR_OVERTIME : COLOR_NORMAL);
+		lastOvertime = red;
+	}
+}
+
+function pad(n)
+{
+	return (n < 10 ? "0" : "") + n;
+}
+
+function formatTime(totalSeconds)
+{
+	var h = Math.floor(totalSeconds / 3600);
+	var m = Math.floor((totalSeconds % 3600) / 60);
+	var s = totalSeconds % 60;
+	if (h > 0) return pad(h) + ":" + pad(m) + ":" + pad(s);
+	return pad(m) + ":" + pad(s);
+}
